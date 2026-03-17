@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "PhishGuard - Phishing Detector",
+  "version": "1.0.0",
+  "description": "Real-time ML-powered phishing website detection using a Chrome extension and Flask backend.",
+
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["utils.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_title": "PhishGuard"
+  }
+}
