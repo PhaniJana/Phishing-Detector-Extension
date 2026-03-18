@@ -13,6 +13,12 @@ const STATE = {
     sub: 'No phishing detected',
     className: 'safe',
   },
+  doubt: {
+    icon: '?',
+    label: 'Doubtful',
+    sub: 'Suspicious signals detected',
+    className: 'doubt',
+  },
   phishing: {
     icon: '!',
     label: 'Phishing Detected',
@@ -34,6 +40,14 @@ function formatProbability(probability) {
   const label = rawPct > 0 && rawPct < 0.01 ? '<0.01%' : `${rawPct.toFixed(2)}%`;
 
   return { level, pctBar, label };
+}
+
+function mapVerdictToState(scan) {
+  if (!scan) return 'unknown';
+  if (scan.verdict === 'phish') return 'phishing';
+  if (scan.verdict === 'doubt') return 'doubt';
+  if (scan.verdict === 'safe') return 'safe';
+  return scan.result === 1 ? 'phishing' : 'safe';
 }
 
 export default function App() {
@@ -69,7 +83,7 @@ export default function App() {
 
         if (!cancelled) {
           setView({
-            state: scan.result === 1 ? 'phishing' : 'safe',
+            state: mapVerdictToState(scan),
             scan,
           });
         }
@@ -116,6 +130,11 @@ export default function App() {
             <div className="detail-row">
               <span className="detail-label">URL</span>
               <span className="detail-value" title={view.scan.url}>{view.scan.url}</span>
+            </div>
+
+            <div className="detail-row">
+              <span className="detail-label">Verdict</span>
+              <span className="detail-value">{view.scan.verdict || mapVerdictToState(view.scan)}</span>
             </div>
 
             <div className="detail-row">

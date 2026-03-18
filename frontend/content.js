@@ -84,8 +84,12 @@
         #${SCAN_BADGE_ID}.pg-danger {
           background: rgba(185, 28, 28, 0.94);
         }
+        #${SCAN_BADGE_ID}.pg-doubt {
+          background: rgba(217, 119, 6, 0.94);
+        }
         #${SCAN_BADGE_ID}.pg-safe .pg-spinner,
-        #${SCAN_BADGE_ID}.pg-danger .pg-spinner {
+        #${SCAN_BADGE_ID}.pg-danger .pg-spinner,
+        #${SCAN_BADGE_ID}.pg-doubt .pg-spinner {
           display: none;
         }
         @keyframes pg-spin {
@@ -109,7 +113,7 @@
     const badge = ensureScanBadge();
     const text = badge.querySelector('.pg-text');
 
-    badge.classList.remove('pg-safe', 'pg-danger', 'pg-hidden');
+    badge.classList.remove('pg-safe', 'pg-danger', 'pg-doubt', 'pg-hidden');
 
     if (state === 'scanning') {
       text.textContent = 'Scanning...';
@@ -126,6 +130,12 @@
     if (state === 'phishing') {
       text.textContent = detail || 'Phishing detected';
       badge.classList.add('pg-danger');
+      return;
+    }
+
+    if (state === 'doubt') {
+      text.textContent = detail || 'Suspicious';
+      badge.classList.add('pg-doubt');
       return;
     }
 
@@ -537,12 +547,15 @@
 
     console.log(`${LOG} API response:`, response);
 
-    if (response.result === 1) {
+    if (response.verdict === 'phish') {
       updateScanBadge('phishing', 'Phishing detected');
       injectWarningOverlay(response.probability);
+    } else if (response.verdict === 'doubt') {
+      updateScanBadge('doubt', 'Use caution');
+      console.warn(`${LOG} Page looks suspicious (verdict=${response.verdict}, probability=${response.probability}).`);
     } else {
       updateScanBadge('safe', 'Safe');
-      console.log(`${LOG} Page appears legitimate (result=${response.result}).`);
+      console.log(`${LOG} Page appears legitimate (verdict=${response.verdict || 'safe'}).`);
     }
   } catch (err) {
     console.error(`${LOG} Error during phishing check:`, err.message);

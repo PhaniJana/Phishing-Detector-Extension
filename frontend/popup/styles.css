@@ -90,6 +90,10 @@ body {
   background: linear-gradient(135deg, #b91c1c, #ef4444);
 }
 
+.status-bar.doubt {
+  background: linear-gradient(135deg, #b45309, #f59e0b);
+}
+
 .status-bar.scanning {
   background: linear-gradient(135deg, #475569, #64748b);
 }

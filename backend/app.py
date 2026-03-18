@@ -14,6 +14,7 @@ import os
 import ssl
 import socket
 import logging
+import time
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -60,6 +61,8 @@ MODEL_PATH = os.path.join(
 )
 model_load_error = None
 phishing_class_value = 0
+PHISH_THRESHOLD = 0.60
+DOUBT_THRESHOLD = 0.20
 
 
 try:
@@ -114,6 +117,12 @@ def extract_domain(url: str) -> str:
         return ""
 
 
+def is_timeout_error(exc: Exception) -> bool:
+    """Return True when an exception appears to be timeout-related."""
+    text = str(exc).lower()
+    return isinstance(exc, TimeoutError) or "timed out" in text or "timeout" in text
+
+
 def check_ssl(url: str, domain: str) -> int:
     """
     Compute SSLfinal_State using the dataset's three-state encoding.
@@ -124,7 +133,7 @@ def check_ssl(url: str, domain: str) -> int:
     """
     parsed = urlparse(url)
     if parsed.scheme.lower() != "https":
-        logger.debug(f"SSL: no HTTPS for {domain}")
+        logger.debug(f"[SSL] {domain}: skipped because URL is not HTTPS -> -1")
         return -1
 
     try:
@@ -132,10 +141,11 @@ def check_ssl(url: str, domain: str) -> int:
         with socket.create_connection((domain, 443), timeout=5) as raw_sock:
             with ctx.wrap_socket(raw_sock, server_hostname=domain):
                 pass
-        logger.debug(f"SSL: valid for {domain}")
+        logger.debug(f"[SSL] {domain}: verified TLS handshake succeeded -> 1")
         return 1
     except Exception as exc:
-        logger.debug(f"SSL: suspicious for {domain} - {exc}")
+        reason = "timeout during TLS handshake" if is_timeout_error(exc) else exc
+        logger.debug(f"[SSL] {domain}: HTTPS present but verification failed ({reason}) -> 0")
         return 0
 
 
@@ -145,6 +155,7 @@ def check_domain_registration_length(domain: str) -> int:
     Otherwise return -1.
     """
     if not WHOIS_AVAILABLE:
+        logger.debug(f"[WHOIS RegLen] {domain}: skipped because python-whois is unavailable -> -1")
         return -1
     try:
         info = python_whois.whois(domain)
@@ -152,21 +163,24 @@ def check_domain_registration_length(domain: str) -> int:
         if isinstance(exp_date, list):
             exp_date = exp_date[0]
         if exp_date is None:
+            logger.debug(f"[WHOIS RegLen] {domain}: expiration date missing -> -1")
             return -1
         if exp_date.tzinfo is None:
             exp_date = exp_date.replace(tzinfo=timezone.utc)
         remaining_days = (exp_date - datetime.now(timezone.utc)).days
         result = 1 if remaining_days > 365 else -1
-        logger.debug(f"RegLen: {remaining_days}d remaining for {domain} -> {result}")
+        logger.debug(f"[WHOIS RegLen] {domain}: {remaining_days}d remaining -> {result}")
         return result
     except Exception as exc:
-        logger.debug(f"RegLen: WHOIS failed for {domain} - {exc}")
+        reason = "WHOIS lookup timed out" if is_timeout_error(exc) else f"WHOIS lookup failed ({exc})"
+        logger.debug(f"[WHOIS RegLen] {domain}: {reason} -> -1")
         return -1
 
 
 def check_age_of_domain(domain: str) -> int:
     """Return 1 if the domain is older than 6 months, else -1."""
     if not WHOIS_AVAILABLE:
+        logger.debug(f"[WHOIS Age] {domain}: skipped because python-whois is unavailable -> -1")
         return -1
     try:
         info = python_whois.whois(domain)
@@ -174,28 +188,32 @@ def check_age_of_domain(domain: str) -> int:
         if isinstance(creation_date, list):
             creation_date = creation_date[0]
         if creation_date is None:
+            logger.debug(f"[WHOIS Age] {domain}: creation date missing -> -1")
             return -1
         if creation_date.tzinfo is None:
             creation_date = creation_date.replace(tzinfo=timezone.utc)
         age_days = (datetime.now(timezone.utc) - creation_date).days
         result = 1 if age_days > 180 else -1
-        logger.debug(f"DomainAge: {age_days}d old for {domain} -> {result}")
+        logger.debug(f"[WHOIS Age] {domain}: {age_days}d old -> {result}")
         return result
     except Exception as exc:
-        logger.debug(f"DomainAge: WHOIS failed for {domain} - {exc}")
+        reason = "WHOIS lookup timed out" if is_timeout_error(exc) else f"WHOIS lookup failed ({exc})"
+        logger.debug(f"[WHOIS Age] {domain}: {reason} -> -1")
         return -1
 
 
 def check_dns_record(domain: str) -> int:
     """Return 1 if the domain has an A record, else -1."""
     if not DNS_AVAILABLE:
+        logger.debug(f"[DNS] {domain}: skipped because dnspython is unavailable -> -1")
         return -1
     try:
         dns.resolver.resolve(domain, "A")
-        logger.debug(f"DNS: A record found for {domain}")
+        logger.debug(f"[DNS] {domain}: A record found -> 1")
         return 1
     except Exception as exc:
-        logger.debug(f"DNS: no A record for {domain} - {exc}")
+        reason = "DNS lookup timed out" if is_timeout_error(exc) else f"no A record / lookup failed ({exc})"
+        logger.debug(f"[DNS] {domain}: {reason} -> -1")
         return -1
 
 
@@ -231,6 +249,15 @@ def normalize_feature_payload(ext_features: dict) -> dict:
     return normalized
 
 
+def classify_verdict(probability: float) -> str:
+    """Map phishing probability to a user-facing verdict label."""
+    if probability >= PHISH_THRESHOLD:
+        return "phish"
+    if probability >= DOUBT_THRESHOLD:
+        return "doubt"
+    return "safe"
+
+
 @app.route("/predict", methods=["POST"])
 def predict():
     """Run phishing prediction for a URL plus extension-provided features."""
@@ -249,8 +276,9 @@ def predict():
     url = body.get("url", "")
     domain = extract_domain(url)
 
-    logger.debug(f"/predict url={url} domain={domain}")
-    logger.debug(f"Extension features ({len(ext_features)}): {ext_features}")
+    start = time.perf_counter()
+    logger.debug(f"[Predict] start url={url} domain={domain}")
+    logger.debug(f"[Predict] extension features ({len(ext_features)}): {ext_features}")
 
     if not isinstance(ext_features, dict):
         return jsonify({"error": "'features' must be a JSON object."}), 400
@@ -261,13 +289,14 @@ def predict():
         logger.warning(f"Invalid feature payload: {exc}")
         return jsonify({"error": str(exc)}), 400
 
+    logger.debug(f"[Predict] deriving server-side features for {domain}")
     server_features = {
         "SSLfinal_State": check_ssl(url, domain),
         "Domain_registeration_length": check_domain_registration_length(domain),
         "age_of_domain": check_age_of_domain(domain),
         "DNSRecord": check_dns_record(domain),
     }
-    logger.debug(f"Server features: {server_features}")
+    logger.debug(f"[Predict] server features: {server_features}")
 
     all_features = {**ext_features, **server_features}
     all_features.setdefault("Favicon", 1)
@@ -281,12 +310,12 @@ def predict():
         }), 400
 
     feature_vector = [all_features[feature] for feature in FEATURE_ORDER]
-    logger.debug(f"Feature vector ({len(feature_vector)}): {feature_vector}")
+    logger.debug(f"[Predict] feature vector ({len(feature_vector)}): {feature_vector}")
 
     try:
         X = np.array(feature_vector, dtype=float).reshape(1, -1)
         raw_prediction = model.predict(X)[0]
-        logger.debug(f"raw_prediction = {raw_prediction}")
+        logger.debug(f"[Predict] raw_prediction={raw_prediction}")
 
         result = 1 if int(raw_prediction) == 0 else 0
 
@@ -300,11 +329,22 @@ def predict():
                 phishing_idx = len(classes) - 1
             probability = float(proba[phishing_idx])
 
+        verdict = classify_verdict(probability)
+
         logger.info(
-            f"result={result} probability={probability:.4f} "
-            f"raw={raw_prediction} domain={domain}"
+            f"[Predict] completed domain={domain} result={result} verdict={verdict} "
+            f"probability={probability:.4f} raw={raw_prediction} "
+            f"elapsed_ms={(time.perf_counter() - start) * 1000:.0f}"
         )
-        return jsonify({"result": result, "probability": probability})
+        return jsonify({
+            "result": result,
+            "probability": probability,
+            "verdict": verdict,
+            "thresholds": {
+                "doubt": DOUBT_THRESHOLD,
+                "phish": PHISH_THRESHOLD,
+            },
+        })
 
     except Exception as exc:
         logger.error(f"Prediction error: {exc}", exc_info=True)
