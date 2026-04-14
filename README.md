@@ -52,6 +52,7 @@ Useful endpoints:
 The backend is structured for AWS Lambda-style deployment.
 
 - Lambda handler: `backend/app.lambda_handler`
+- Vercel Flask entrypoint: `app.py` at the repository root
 - Runtime model artifact: `backend/phishing_model.json`
 - Runtime dependencies: `backend/requirements.txt`
 
@@ -62,6 +63,14 @@ This backend was slimmed down for serverless packaging:
 - Local development still works with `python app.py`.
 
 This change is specifically intended to reduce deployment size for Lambda/serverless environments where unpacked dependency size is constrained.
+
+### Vercel Notes
+
+Vercel detects Flask from a root-level `app.py` exporting `app = Flask(__name__)`.
+
+- Root Flask entrypoint: `app.py`
+- Root dependency file for Vercel: `requirements.txt`
+- Shared prediction logic remains in `backend/app.py`
 
 ## Frontend Setup
 
