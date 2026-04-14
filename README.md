@@ -3,15 +3,16 @@
 PhishGuard is a machine-learning-powered phishing detection project with two parts:
 
 - A Chrome extension frontend that scans the current page and shows a warning UI.
-- A Flask backend that receives extracted features, enriches them with server-side checks, and returns a phishing prediction.
+- A lightweight backend that receives extracted features, enriches them with server-side checks, and returns a phishing prediction.
 
 ## Project Structure
 
 ```text
 backend/
-  app.py                 Flask API for prediction and health checks
-  requirements.txt       Python dependencies
-  phishing_model.pkl     Trained ML model
+  app.py                 Lambda-ready backend entrypoint + local dev server
+  requirements.txt       Lean runtime dependencies
+  phishing_model.json    Native XGBoost model for deployment
+  phishing_model.pkl     Original training/export artifact
 
 frontend/
   manifest.json          Chrome extension manifest
@@ -39,12 +40,28 @@ pip install -r requirements.txt
 python app.py
 ```
 
-The Flask API runs on `http://localhost:5000`.
+The local backend runs on `http://localhost:5000`.
 
 Useful endpoints:
 
 - `GET /health` for a health check
 - `POST /predict` for phishing prediction
+
+## Backend Deployment
+
+The backend is structured for AWS Lambda-style deployment.
+
+- Lambda handler: `backend/app.lambda_handler`
+- Runtime model artifact: `backend/phishing_model.json`
+- Runtime dependencies: `backend/requirements.txt`
+
+This backend was slimmed down for serverless packaging:
+
+- It loads the native XGBoost model directly instead of unpickling a `scikit-learn` wrapper.
+- It no longer requires `scikit-learn`, `joblib`, `Flask`, or `Flask-CORS` at runtime.
+- Local development still works with `python app.py`.
+
+This change is specifically intended to reduce deployment size for Lambda/serverless environments where unpacked dependency size is constrained.
 
 ## Frontend Setup
 
@@ -67,13 +84,13 @@ This creates the unpacked extension build in `frontend/dist`.
 ## How It Works
 
 1. The content script runs on page load and extracts phishing-related features from the URL and DOM.
-2. The background service worker sends those features and the current URL to the Flask backend.
+2. The background service worker sends those features and the current URL to the backend.
 3. The backend adds SSL, WHOIS, and DNS-based checks, then runs the ML model.
 4. The extension shows either a safe result or a phishing warning with an optional safe mode.
 
 ## Development Notes
 
-- The extension expects the backend at `http://localhost:5000/predict`.
+- The extension expects the backend at `http://localhost:5000/predict` during local development.
 - If the backend is unavailable, the extension falls back to a non-blocking safe result.
 - Rebuild the frontend after popup, manifest, or script changes with `npm run build`.
 

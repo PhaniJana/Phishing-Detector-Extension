@@ -1,20 +1,9 @@
-# PhishGuard Backend — Python Dependencies
+# PhishGuard Lambda runtime dependencies
 #
-# Install with:  pip install -r requirements.txt
-#
-# Core framework
-flask>=3.0.0
-flask-cors>=4.0.0
-
-# ML model loading & inference
-joblib>=1.3.0
-scikit-learn>=1.3.0
+# Optimized for serverless deployment size:
+# - native XGBoost JSON model loading
+# - no Flask / scikit-learn / joblib runtime dependency chain
 numpy>=1.24.0
 xgboost>=2.0.0
-
-# Server-side feature extraction
-python-whois>=0.9.0      # WHOIS lookups for domain age & registration length
-dnspython>=2.4.0         # DNS A record lookups
-
-# HTTP utility (optional, available for future feature additions)
-requests>=2.31.0
+python-whois>=0.9.0
+dnspython>=2.4.0

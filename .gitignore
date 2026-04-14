@@ -33,3 +33,4 @@ pnpm-debug.log*
 
 # Logs
 *.log
+backend/__pycache__/
